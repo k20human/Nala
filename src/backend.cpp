@@ -254,11 +254,21 @@ Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
     m_dodgeOffsetTarget = 0.0;
   });
 
+  // Outputs come and go in bursts — a dock waking up drops them all, then
+  // brings them back one by one — so mapping Nala again waits for them to
+  // settle rather than landing on a screen that is about to vanish.
+  m_remapTimer.setSingleShot(true);
+  m_remapTimer.setInterval(500);
+  connect(&m_remapTimer, &QTimer::timeout, this, &Backend::remapToLiveScreen);
+
   if (!m_testing) {
     connect(qApp, &QGuiApplication::screenAdded, this,
             &Backend::screensChanged);
     connect(qApp, &QGuiApplication::screenRemoved, this,
             &Backend::screensChanged);
+    // A screen turning up is when a dismissed Nala can come back.
+    connect(qApp, &QGuiApplication::screenAdded, &m_remapTimer,
+            qOverload<>(&QTimer::start));
   }
 }
 
@@ -623,7 +633,10 @@ void Backend::attach(QQuickWindow *window) {
       layer->setExclusiveZone(-1); // never reserve space from other windows
       layer->setKeyboardInteractivity(
           LayerShellQt::Window::KeyboardInteractivityNone);
-      layer->setCloseOnDismissed(false);
+      // The compositor dismisses the surface when its output goes away. Left
+      // open, the window would stay "visible" over a surface that no longer
+      // exists; closed, it can be mapped again on a screen that does.
+      layer->setCloseOnDismissed(true);
       m_layered = true;
     }
   }
@@ -632,6 +645,21 @@ void Backend::attach(QQuickWindow *window) {
   applyPlacement();
   m_window->setVisible(true);
   applyInputRegion(false);
+
+  // Nala never hides her own window, so a layered one going hidden means the
+  // compositor took her surface away.
+  connect(m_window, &QWindow::visibleChanged, this, [this](bool visible) {
+    if (!visible && m_layered)
+      m_remapTimer.start();
+  });
+}
+
+void Backend::remapToLiveScreen() {
+  if (!m_window || m_window->isVisible())
+    return;
+  applyPlacement();
+  m_window->setVisible(true);
+  applyInputRegion(m_dragging);
 }
 
 void Backend::applyPlacement() {

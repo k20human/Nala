@@ -221,6 +221,7 @@ private:
   void applyToMascot();
   void applyPlacement();
   void applyInputRegion(bool wholeWindow = false);
+  void remapToLiveScreen();
   void note(const QString &message);
   QRect screenGeometry() const;
   void onKeyPressed();
@@ -245,6 +246,7 @@ private:
   bool m_snackLayered = false;
   qreal m_sinceThought = 0.0;
   QTimer m_dodgeTimer;
+  QTimer m_remapTimer;
   qreal m_dodgeOffset = 0.0;
   qreal m_dodgeOffsetTarget = 0.0;
 
