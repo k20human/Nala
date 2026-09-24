@@ -779,8 +779,11 @@ void Backend::repositionBubble() {
   const qreal localX = centreOnScreen().x() - screen.x();
   const qreal localY = centreOnScreen().y() - screen.y();
 
-  const int bw = m_bubbleWindow->width() > 0 ? m_bubbleWindow->width() : 250;
-  const int bh = m_bubbleWindow->height() > 0 ? m_bubbleWindow->height() : 64;
+  // Always the bubble's own size, never the window's current one: the shell
+  // can configure a fresh layer surface to the whole usable area before its
+  // first commit, and asking for that size back would make it stick.
+  const int bw = 250;
+  const int bh = 64;
 
   int bx = 0;
   int by = 0;
