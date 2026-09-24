@@ -1,5 +1,6 @@
 #include "mascot.h"
 #include <QScopeGuard>
+#include <QTimer>
 #include <QtMath>
 #include <algorithm>
 
@@ -341,8 +342,16 @@ void Mascot::advanceBlink(qreal dt) {
 // orbit rings managed to go unseen for an entire session.
 int Mascot::drawAntic() {
   if (m_anticBag.isEmpty()) {
-    for (int i = 0; i < AnticCount; ++i)
-      m_anticBag.append(i);
+    m_anticBag = {BecomeEgg, BecomeHex, Ponder, Winking, ComeApart};
+    if (m_level >= 3)
+      m_anticBag.append(BecomeStar);
+    if (m_level >= 5)
+      m_anticBag.append(BecomeHeart);
+    if (m_level >= 7)
+      m_anticBag.append(BecomeCloud);
+    if (m_level >= 10)
+      m_anticBag.append(BecomeBlossom);
+
     // Fisher-Yates, and never open a bag with whatever closed the last one.
     for (int i = m_anticBag.size() - 1; i > 0; --i)
       std::swap(m_anticBag[i], m_anticBag[int(random(0.0, i + 1.0))]);
@@ -368,6 +377,22 @@ void Mascot::performAntic(int antic) {
     break;
   case ComeApart:
     scatter();
+    break;
+  case BecomeStar:
+    morphTo(Star, 0.26);
+    m_hold = 1.8;
+    break;
+  case BecomeHeart:
+    morphTo(Heart, 0.26);
+    m_hold = 1.8;
+    break;
+  case BecomeCloud:
+    morphTo(Cloud, 0.26);
+    m_hold = 1.8;
+    break;
+  case BecomeBlossom:
+    morphTo(Blossom, 0.26);
+    m_hold = 1.8;
     break;
   default:
     break;
@@ -514,6 +539,24 @@ void Mascot::tick(qreal dt) {
   advanceBlink(dt);
   advanceIdle(dt);
 
+  if (m_dizzyTimer > 0.0) {
+    m_dizzyTimer = std::max(0.0, m_dizzyTimer - dt);
+    m_dizzyAngle += dt * 6.5;
+    m_roll = std::sin(m_time * 12.0) * 0.18;
+  }
+  if (m_tickleTimer > 0.0) {
+    m_tickleTimer = std::max(0.0, m_tickleTimer - dt);
+    m_squashX = 1.0 + std::sin(m_time * 36.0) * 0.12;
+    m_squashY = 1.0 - std::sin(m_time * 36.0) * 0.12;
+  }
+  if (m_pancakeTimer > 0.0) {
+    m_pancakeTimer = std::max(0.0, m_pancakeTimer - dt);
+    if (m_pancakeTimer > 0.4) {
+      m_squashX = 1.48;
+      m_squashY = 0.38;
+    }
+  }
+
   // Droplets: thrown clear, slowed by drag, gone when their life runs out.
   if (!m_droplets.isEmpty()) {
     for (Droplet &drop : m_droplets) {
@@ -563,6 +606,9 @@ void Mascot::tick(qreal dt) {
                  ? qBound(0.0, (m_idle - kDrowsyAfter) /
                                    (kSleepAfter - kDrowsyAfter), 1.0)
                  : 0.0;
+  if (m_mood == Resting && m_timeFatigue > 0.0) {
+    m_drowsy = std::max(m_drowsy, m_timeFatigue);
+  }
 
   // Drift off after a long stretch of being left alone.
   if (m_sleepWhenIdle && m_mood == Resting && m_idle > kSleepAfter) {
@@ -612,14 +658,24 @@ void Mascot::tick(qreal dt) {
     pitch += std::sin(m_time * 0.51 + 2.1) * 0.025;
   }
   settle(m_yaw, yaw, dt, 9.0);
-  settle(m_pitch, pitch, dt, 9.0);
+  settle(m_pitch, pitch + (m_mood == Resting ? 0.10 * m_drowsy : 0.0), dt, 9.0);
   placeEyes();
 
-  settle(m_eyeWidth, m_eyeWidthTarget, dt, 13.0);
-  settle(m_eyeRound, m_eyeRoundTarget, dt, 10.0);
+  const qreal targetWidth = (m_mood == Resting && m_drowsy > 0.05)
+                                ? kEyeWidth * (1.0 + 0.30 * m_drowsy)
+                                : m_eyeWidthTarget;
+  const qreal targetRound = (m_mood == Resting && m_drowsy > 0.05)
+                                ? std::max(0.35, 1.0 - 0.55 * m_drowsy)
+                                : m_eyeRoundTarget;
 
-  // Her lids lower as she flags, so sleep does not arrive out of nowhere.
-  settle(m_eyeHeight, m_eyeHeightTarget * (1.0 - 0.5 * m_drowsy), dt, 13.0);
+  settle(m_eyeWidth, targetWidth, dt, 13.0);
+  settle(m_eyeRound, targetRound, dt, 10.0);
+
+  // Her lids lower as she flags, giving heavy tired eyes
+  const qreal effectiveHeight = (m_mood == Resting && m_drowsy > 0.05)
+                                    ? m_eyeHeightTarget * (1.0 - 0.65 * m_drowsy)
+                                    : m_eyeHeightTarget * (1.0 - 0.5 * m_drowsy);
+  settle(m_eyeHeight, effectiveHeight, dt, 13.0);
 
   // Lids. A blink shuts both; a wink shuts one and holds it. They are applied
   // per eye rather than to the shared height so the two can differ.
@@ -637,8 +693,13 @@ void Mascot::tick(qreal dt) {
   } else {
     settle(m_winkLid, 0.0, dt, 14.0);
   }
-  m_left.lid = std::max(blinkLid, 0.0);
-  m_right.lid = std::max(blinkLid, m_winkLid);
+  const qreal sleepyLid = (m_mood == Resting) ? 0.42 * m_drowsy : 0.0;
+  m_left.lid = std::max({blinkLid, sleepyLid, 0.0});
+  m_right.lid = std::max({blinkLid, m_winkLid, sleepyLid});
+  if (sleepyLid > 0.02) {
+    m_left.scale.setX(m_left.scale.x() * (1.0 + 0.15 * m_drowsy));
+    m_right.scale.setX(m_right.scale.x() * (1.0 + 0.15 * m_drowsy));
+  }
   // A squeezed eye spreads sideways as it flattens.
   m_right.scale.setX(m_right.scale.x() * (1.0 + 0.3 * m_winkLid));
 
@@ -728,6 +789,186 @@ void Mascot::poke() {
         m_squashYTarget = 1.0;
       },
       Qt::QueuedConnection);
+}
+
+void Mascot::pet() {
+  wake();
+  setMood(Happy);
+  m_hold = std::max(m_hold, 0.7);
+  // Cute squinting smiling eyes (^.^)
+  m_eyeRoundTarget = 0.25;
+  m_eyeWidthTarget = 0.21;
+  m_eyeHeightTarget = 0.06;
+  // Gentle purr squash
+  m_squashXTarget = 1.07;
+  m_squashYTarget = 0.94;
+  emit petted();
+  QMetaObject::invokeMethod(
+      this,
+      [this] {
+        m_squashXTarget = 1.0;
+        m_squashYTarget = 1.0;
+      },
+      Qt::QueuedConnection);
+}
+
+void Mascot::love() {
+  wake();
+  setMood(Happy);
+  m_hold = 1.2;
+  // Big delighted bounce
+  m_squashXTarget = 1.22;
+  m_squashYTarget = 0.82;
+  m_scale = 0.88;
+  m_scaleVelocity = 0.0;
+  m_scaleTarget = 1.08;
+  m_eyeWidthTarget = 0.22;
+  m_eyeHeightTarget = 0.25;
+  m_eyeRoundTarget = 1.0;
+  emit loved();
+  QMetaObject::invokeMethod(
+      this,
+      [this] {
+        m_squashXTarget = 1.0;
+        m_squashYTarget = 1.0;
+        m_scaleTarget = 1.0;
+      },
+      Qt::QueuedConnection);
+}
+
+void Mascot::feed(const QString &snack) {
+  wake();
+  setMood(Happy);
+  m_hold = 1.8;
+  // Chewing squashes
+  m_squashXTarget = 1.15;
+  m_squashYTarget = 0.88;
+  m_scale = 0.92;
+  m_scaleVelocity = 0.0;
+  m_scaleTarget = 1.05;
+  m_eyeWidthTarget = 0.19;
+  m_eyeHeightTarget = 0.08;
+  m_eyeRoundTarget = 0.3;
+  emit snackFed(snack);
+  QMetaObject::invokeMethod(
+      this,
+      [this] {
+        m_squashXTarget = 1.0;
+        m_squashYTarget = 1.0;
+        m_scaleTarget = 1.0;
+      },
+      Qt::QueuedConnection);
+}
+
+void Mascot::keyBounce() {
+  wake();
+  if (m_reduced)
+    return;
+  // Dynamic squash and bounce impulse on keystroke
+  m_squashX = std::min(1.24, m_squashX + 0.08);
+  m_squashY = std::max(0.78, m_squashY - 0.08);
+  m_scale = std::max(0.90, m_scale - 0.04);
+}
+
+void Mascot::keyRings() {
+  wake();
+  if (m_reduced)
+    return;
+  // Spin up and sustain orbit rings on typing
+  m_rings = std::min(1.0, m_rings + 0.35);
+  m_ringsTarget = 1.0;
+  m_hold = std::max(m_hold, 0.65);
+}
+
+void Mascot::stretchPurr() {
+  wake();
+  setMood(Happy);
+  m_hold = 1.6;
+  m_squashXTarget = 0.82;
+  m_squashYTarget = 1.24;
+  m_scaleTarget = 1.12;
+  m_eyeHeightTarget = 0.04;
+  m_eyeWidthTarget = 0.22;
+  m_eyeRoundTarget = 0.6;
+  emit purred();
+  QTimer::singleShot(800, this, [this] {
+    m_squashXTarget = 1.0;
+    m_squashYTarget = 1.0;
+    m_scaleTarget = 1.0;
+  });
+}
+
+void Mascot::sleepLull() {
+  wake();
+  m_drowsy = 1.0;
+  m_idle = 999.0;
+  setMood(Asleep);
+  m_squashXTarget = 1.10;
+  m_squashYTarget = 0.88;
+  m_eyeHeightTarget = 0.0;
+  m_hold = 999.0;
+}
+
+void Mascot::tickle() {
+  wake();
+  setMood(Happy);
+  m_tickleTimer = 1.8;
+  m_hold = 2.0;
+  m_eyeWidthTarget = 0.22;
+  m_eyeHeightTarget = 0.09;
+  m_eyeRoundTarget = 0.8;
+  emit tickled();
+}
+
+void Mascot::dizzy() {
+  wake();
+  setMood(Happy);
+  m_dizzyTimer = 3.6;
+  m_hold = 3.8;
+  emit dizzied();
+}
+
+void Mascot::pancakeSquash() {
+  wake();
+  setMood(Happy);
+  m_pancakeTimer = 1.1;
+  m_hold = 1.3;
+  m_squashX = 1.48;
+  m_squashY = 0.38;
+  m_squashXTarget = 1.0;
+  m_squashYTarget = 1.0;
+  m_eyeWidthTarget = 0.24;
+  m_eyeHeightTarget = 0.24;
+  m_eyeRoundTarget = 1.0;
+  emit pancaked();
+}
+
+void Mascot::celebrate() {
+  wake();
+  setMood(Happy);
+  m_hold = 2.5;
+  m_scale = 1.25;
+  m_scaleVelocity = 0.0;
+  m_scaleTarget = 1.0;
+  m_squashX = 0.84;
+  m_squashY = 1.26;
+  m_squashXTarget = 1.0;
+  m_squashYTarget = 1.0;
+  m_eyeWidthTarget = 0.22;
+  m_eyeHeightTarget = 0.22;
+  m_eyeRoundTarget = 1.0;
+  emit celebrated();
+}
+
+void Mascot::pounce(qreal targetX, qreal targetY) {
+  wake();
+  setMood(Alert);
+  m_squashX = 1.32;
+  m_squashY = 0.70;
+  m_squashXTarget = 1.0;
+  m_squashYTarget = 1.0;
+  m_hold = 1.8;
+  emit pounced(targetX, targetY);
 }
 
 void Mascot::think(qreal seconds) {
@@ -823,10 +1064,18 @@ void Mascot::setHovered(bool hovered) {
 void Mascot::lookAt(qreal x, qreal y) {
   m_lookingAtCursor = true;
   m_sinceLook = 0.0;
-  // Turn the cursor's offset into an orientation. tanh keeps a cursor far off
-  // to one side from pinning the gaze at the very limit of its travel.
-  m_yawTarget = std::tanh(x * 0.45) * kMaxYaw;
-  m_pitchTarget = std::tanh(y * 0.45) * kMaxPitch;
+  // Turn the cursor's 2D offset into a true directional gaze. Using the vector's
+  // unit direction prevents independent per-axis saturation from pinning the
+  // gaze at a fixed 45-degree angle whenever the cursor is far from Nala.
+  const qreal dist = std::hypot(x, y);
+  if (dist < 1e-4) {
+    m_yawTarget = 0.0;
+    m_pitchTarget = 0.0;
+    return;
+  }
+  const qreal mag = std::tanh(dist * 0.45);
+  m_yawTarget = (x / dist) * mag * kMaxYaw;
+  m_pitchTarget = (y / dist) * mag * kMaxPitch;
 }
 
 void Mascot::setSwaying(bool swaying) {
@@ -890,6 +1139,7 @@ void Mascot::rest() {
   m_bobX = m_bobY = 0.0;
   m_breathe = 0.0;
   m_drowsy = 0.0;
+  m_timeFatigue = 0.0;
   m_sway = m_swayTarget = m_swayRoll = 0.0;
   // Lids too: without this a rest() taken mid-blink leaves an eye half shut,
   // and anything that measures from here starts off a wrong baseline.
@@ -907,3 +1157,78 @@ void Mascot::rest() {
   m_lookingAtCursor = false;
   emit frame();
 }
+
+void Mascot::backflip() {
+  wake();
+  setMood(Happy);
+  m_hold = 1.4;
+  m_roll = -6.2831853;
+  m_rollTarget = 0.0;
+  m_squashX = 0.72;
+  m_squashY = 1.38;
+  m_squashXTarget = 1.0;
+  m_squashYTarget = 1.0;
+  m_scale = 1.15;
+  m_scaleVelocity = 0.0;
+  m_scaleTarget = 1.0;
+  m_eyeWidthTarget = 0.22;
+  m_eyeHeightTarget = 0.22;
+  m_eyeRoundTarget = 1.0;
+  emit backflipped();
+}
+
+void Mascot::highFive() {
+  wake();
+  setMood(Happy);
+  m_hold = 1.2;
+  m_yawTarget = 0.22;
+  m_pitchTarget = -0.15;
+  m_roll = 0.25;
+  m_rollTarget = 0.0;
+  m_squashXTarget = 1.12;
+  m_squashYTarget = 0.92;
+  m_eyeWidthTarget = 0.22;
+  m_eyeHeightTarget = 0.08;
+  m_eyeRoundTarget = 0.25;
+  emit highFived();
+  QMetaObject::invokeMethod(
+      this,
+      [this] {
+        m_squashXTarget = 1.0;
+        m_squashYTarget = 1.0;
+      },
+      Qt::QueuedConnection);
+}
+
+void Mascot::starShower() {
+  wake();
+  setMood(Happy);
+  m_hold = 2.0;
+  morphTo(Star, 0.22);
+  m_scale = 1.25;
+  m_scaleVelocity = 0.0;
+  m_scaleTarget = 1.0;
+  m_eyeWidthTarget = 0.24;
+  m_eyeHeightTarget = 0.24;
+  m_eyeRoundTarget = 1.0;
+  emit starShowerTriggered();
+}
+
+void Mascot::danceBeat() {
+  wake();
+  setMood(Happy);
+  m_hold = 0.8;
+  m_sway = (m_sway >= 0.0 ? -0.35 : 0.35);
+  m_roll = (m_roll >= 0.0 ? -0.18 : 0.18);
+  m_rollTarget = 0.0;
+  m_squashXTarget = 1.12;
+  m_squashYTarget = 0.88;
+  QMetaObject::invokeMethod(
+      this,
+      [this] {
+        m_squashXTarget = 1.0;
+        m_squashYTarget = 1.0;
+      },
+      Qt::QueuedConnection);
+}
+

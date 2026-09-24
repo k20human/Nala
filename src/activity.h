@@ -18,9 +18,15 @@ public:
   Activity(QString stateRoot, QObject *parent = nullptr);
 
   bool busy() const { return m_busy; }
-  bool watchingNotifications() const { return !m_historyPath.isEmpty(); }
+  bool watchingNotifications() const {
+    return !m_historyPath.isEmpty() || !m_omarchyNotificationsDir.isEmpty();
+  }
+
+  QString lastApp() const { return m_lastApp; }
+  QString lastSummary() const { return m_lastSummary; }
 
   void setActive(bool active);
+  bool isActive() const { return m_active; }
 
   // Test seams.
   void injectLoad(qreal perCore);
@@ -33,8 +39,15 @@ signals:
 private:
   void pollLoad();
   void readHistory();
+  void readOmarchyNotifications();
 
   QString m_historyPath;
+  QString m_omarchyNotificationsDir;
+  QString m_omarchyHistoryDir;
+  QString m_lastApp;
+  QString m_lastSummary;
+  qint64 m_lastOmarchyTimestamp = -1;
+
   QTimer m_loadTimer;
   QFileSystemWatcher m_watcher;
   QTimer m_debounce;

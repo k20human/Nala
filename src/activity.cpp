@@ -1,5 +1,6 @@
 #include "activity.h"
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -24,18 +25,36 @@ Activity::Activity(QString stateRoot, QObject *parent) : QObject(parent) {
   if (QFileInfo::exists(history))
     m_historyPath = history;
 
+  const QString omarchyNotifications = stateRoot + "/omarchy/notifications";
+  if (QDir(omarchyNotifications).exists()) {
+    m_omarchyNotificationsDir = omarchyNotifications;
+    const QString omarchyHistory = omarchyNotifications + "/history";
+    if (QDir(omarchyHistory).exists())
+      m_omarchyHistoryDir = omarchyHistory;
+  }
+
   m_loadTimer.setInterval(2000);
   connect(&m_loadTimer, &QTimer::timeout, this, &Activity::pollLoad);
 
   // The daemon rewrites the file wholesale, so collapse the burst.
   m_debounce.setSingleShot(true);
   m_debounce.setInterval(120);
-  connect(&m_debounce, &QTimer::timeout, this, &Activity::readHistory);
+  connect(&m_debounce, &QTimer::timeout, this, [this] {
+    if (!m_historyPath.isEmpty())
+      readHistory();
+    if (!m_omarchyNotificationsDir.isEmpty())
+      readOmarchyNotifications();
+  });
+
   connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this] {
     // A replaced file drops the watch, so put it back.
     if (!m_watcher.files().contains(m_historyPath) &&
         QFileInfo::exists(m_historyPath))
       m_watcher.addPath(m_historyPath);
+    m_debounce.start();
+  });
+
+  connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] {
     m_debounce.start();
   });
 }
@@ -52,10 +71,18 @@ void Activity::setActive(bool active) {
       m_watcher.addPath(m_historyPath);
       readHistory(); // establish the baseline without announcing it
     }
+    if (!m_omarchyNotificationsDir.isEmpty()) {
+      m_watcher.addPath(m_omarchyNotificationsDir);
+      if (!m_omarchyHistoryDir.isEmpty())
+        m_watcher.addPath(m_omarchyHistoryDir);
+      readOmarchyNotifications(); // establish the baseline without announcing it
+    }
   } else {
     m_loadTimer.stop();
     if (!m_watcher.files().isEmpty())
       m_watcher.removePaths(m_watcher.files());
+    if (!m_watcher.directories().isEmpty())
+      m_watcher.removePaths(m_watcher.directories());
   }
 }
 
@@ -98,6 +125,51 @@ void Activity::readHistory() {
   m_lastSerial = newest;
   if (arrived)
     emit notified();
+}
+
+void Activity::readOmarchyNotifications() {
+  qint64 newestTimestamp = 0;
+  QJsonObject newestObj;
+
+  auto scanDir = [&](const QString &dirPath) {
+    if (dirPath.isEmpty())
+      return;
+    QDir dir(dirPath);
+    const QFileInfoList list =
+        dir.entryInfoList(QStringList{QStringLiteral("*.json")}, QDir::Files);
+    for (const QFileInfo &info : list) {
+      const QString base = info.baseName();
+      const int dashIdx = base.indexOf(u'-');
+      qint64 ts = 0;
+      if (dashIdx > 0) {
+        bool ok = false;
+        ts = base.left(dashIdx).toLongLong(&ok);
+      }
+      if (ts == 0)
+        ts = info.lastModified().toMSecsSinceEpoch();
+
+      if (ts > newestTimestamp) {
+        newestTimestamp = ts;
+        QFile f(info.absoluteFilePath());
+        if (f.open(QIODevice::ReadOnly)) {
+          newestObj = QJsonDocument::fromJson(f.readAll()).object();
+        }
+      }
+    }
+  };
+
+  scanDir(m_omarchyNotificationsDir);
+  scanDir(m_omarchyHistoryDir);
+
+  const bool firstLook = (m_lastOmarchyTimestamp < 0);
+  const bool arrived = !firstLook && (newestTimestamp > m_lastOmarchyTimestamp);
+  m_lastOmarchyTimestamp = std::max(m_lastOmarchyTimestamp, newestTimestamp);
+
+  if (arrived) {
+    m_lastApp = newestObj.value(QStringLiteral("app")).toString();
+    m_lastSummary = newestObj.value(QStringLiteral("summary")).toString();
+    emit notified();
+  }
 }
 
 void Activity::injectNotification() { emit notified(); }

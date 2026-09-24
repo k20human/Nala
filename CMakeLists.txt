@@ -15,6 +15,7 @@ qt_add_executable(nala
   src/backend.cpp src/backend.h
   src/compositor.cpp src/compositor.h
   src/cursor.cpp src/cursor.h
+  src/keyboard.cpp src/keyboard.h
   src/mascot.cpp src/mascot.h
   src/music.cpp src/music.h
   src/orbits.cpp src/orbits.h
@@ -28,6 +29,9 @@ qt_add_shaders(nala "shaders"
 
 qt_add_resources(nala "ui" PREFIX / FILES
   qml/Mascot.qml
+  qml/Bubble.qml
+  qml/SnackWindow.qml
+  qml/ToyWindow.qml
   qml/Settings.qml
   assets/nala.svg)
 

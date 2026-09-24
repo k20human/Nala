@@ -57,6 +57,10 @@ class Mascot : public QObject {
   Q_PROPERTY(qreal drowsiness READ drowsiness NOTIFY frame)
   Q_PROPERTY(bool sleeping READ sleeping NOTIFY moodChanged)
   Q_PROPERTY(bool dragging READ dragging NOTIFY moodChanged)
+  Q_PROPERTY(bool dizzy READ isDizzy NOTIFY frame)
+  Q_PROPERTY(bool giggling READ isGiggling NOTIFY frame)
+  Q_PROPERTY(bool pancaked READ isPancaked NOTIFY frame)
+  Q_PROPERTY(qreal dizzyAngle READ dizzyAngle NOTIFY frame)
 
 public:
   // Indices must match `form()` in shaders/mascot.frag.
@@ -68,7 +72,11 @@ public:
     Exclaim = 4,
     Teardrop = 5,
     Dots = 6,
-    Tiny = 7
+    Tiny = 7,
+    Star = 8,
+    Heart = 9,
+    Cloud = 10,
+    Blossom = 11
   };
   Q_ENUM(Form)
 
@@ -81,7 +89,18 @@ public:
   // on luck. Small filler movements are not in here: they run on their own,
   // faster cadence, which keeps the bag short enough to get all the way
   // through before she drifts off.
-  enum Antic { BecomeEgg, BecomeHex, Ponder, Winking, ComeApart, AnticCount };
+  enum Antic {
+    BecomeEgg,
+    BecomeHex,
+    Ponder,
+    Winking,
+    ComeApart,
+    BecomeStar,
+    BecomeHeart,
+    BecomeCloud,
+    BecomeBlossom,
+    AnticCount
+  };
   Q_ENUM(Antic)
 
   // She never holds perfectly still. Measured from the reference: the body's
@@ -167,11 +186,27 @@ public:
   qreal drowsiness() const { return m_drowsy; }
   bool sleeping() const { return m_mood == Asleep; }
   bool dragging() const { return m_mood == Held; }
+  bool isDizzy() const { return m_dizzyTimer > 0.0; }
+  bool isGiggling() const { return m_tickleTimer > 0.0; }
+  bool isPancaked() const { return m_pancakeTimer > 0.0; }
+  qreal dizzyAngle() const { return m_dizzyAngle; }
 
   // Interaction.
   Q_INVOKABLE void poke();
+  Q_INVOKABLE void pet();
+  Q_INVOKABLE void love();
+  Q_INVOKABLE void feed(const QString &snack = QStringLiteral("cookie"));
   Q_INVOKABLE void wink();
   Q_INVOKABLE void scatter();
+  Q_INVOKABLE void keyBounce();
+  Q_INVOKABLE void keyRings();
+  Q_INVOKABLE void stretchPurr();
+  Q_INVOKABLE void sleepLull();
+  Q_INVOKABLE void tickle();
+  Q_INVOKABLE void dizzy();
+  Q_INVOKABLE void pancakeSquash();
+  Q_INVOKABLE void celebrate();
+  Q_INVOKABLE void pounce(qreal targetX = 0.0, qreal targetY = 0.0);
 
   // Flight. `speed` is 0..1; the backend drives the window, this drives how
   // she looks while it happens.
@@ -209,6 +244,8 @@ public:
   bool reducedMotion() const { return m_reduced; }
   void setSleepWhenIdle(bool enabled);
   void setIdleAntics(bool enabled);
+  void setTimeFatigue(qreal fatigue) { m_timeFatigue = fatigue; }
+  qreal timeFatigue() const { return m_timeFatigue; }
 
   // Request a form directly. Like every other morph this waits for any
   // transition already in flight, so the silhouette never tears.
@@ -217,6 +254,15 @@ public:
   // Hard reset used by tests and by wake-up: abandon the current transition.
   Q_INVOKABLE void snapForm(int form);
 
+  // New level-based tricks & interactions
+  Q_INVOKABLE void backflip();
+  Q_INVOKABLE void highFive();
+  Q_INVOKABLE void starShower();
+  Q_INVOKABLE void danceBeat();
+
+  void setLevel(int level) { m_level = level; }
+  int level() const { return m_level; }
+
   // Drop everything and return to the idle pose immediately: no rings, no
   // badge, no squash, eyes at rest. Backs the `rest` command.
   Q_INVOKABLE void rest();
@@ -224,6 +270,18 @@ public:
 signals:
   void frame();
   void moodChanged();
+  void loved();
+  void petted();
+  void snackFed(const QString &snack);
+  void purred();
+  void tickled();
+  void dizzied();
+  void pancaked();
+  void celebrated();
+  void pounced(qreal tx, qreal ty);
+  void backflipped();
+  void highFived();
+  void starShowerTriggered();
 
 private:
   void setMood(Mood mood);
@@ -317,8 +375,13 @@ private:
   QVector<int> m_anticBag; // shuffled, dealt one at a time, refilled when empty
   qreal m_breathe = 0.0;  // -1..1, the slow idle swell
   qreal m_drowsy = 0.0;   // 0..1, how close she is to nodding off
+  qreal m_timeFatigue = 0.0; // 0..1, fatigue driven by night or early morning
   qreal m_sway = 0.0, m_swayTarget = 0.0, m_swayPhase = 0.0, m_swayRoll = 0.0;
   qreal m_cooldown = 0.0; // rate-limit on reactions
+  qreal m_dizzyTimer = 0.0;
+  qreal m_dizzyAngle = 0.0;
+  qreal m_tickleTimer = 0.0;
+  qreal m_pancakeTimer = 0.0;
 
   bool m_reduced = false;
   bool m_sleepWhenIdle = true;
@@ -326,6 +389,7 @@ private:
   bool m_hovered = false;
   bool m_lookingAtCursor = false;
   qreal m_sinceLook = 99.0; // seconds since the cursor last moved
+  int m_level = 1;
 
   QRandomGenerator m_random;
 };

@@ -8,6 +8,7 @@
 #include "selftest.h"
 #include "trail.h"
 #include "theme.h"
+#include "keyboard.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -104,7 +105,8 @@ int main(int argc, char **argv) {
   const bool testing = parser.isSet("self-test") || parser.isSet("poses") ||
                        parser.isSet("film");
   const bool preview = parser.isSet("preview") || testing;
-  const QString requested = parser.positionalArguments().value(0, "run");
+  const QStringList posArgs = parser.positionalArguments();
+  const QString requested = posArgs.isEmpty() ? QStringLiteral("run") : posArgs.join(' ');
   const QString socketPath = runtimeSocket();
 
   // Hand the command to an already-running Nala rather than starting a second.
@@ -171,8 +173,9 @@ int main(int argc, char **argv) {
   Activity activity(themeState);
   Compositor compositor;
   Music music;
+  Keyboard keyboard;
   Backend backend(configPath, preview, testing, &mascot, &theme, &cursor,
-                  &activity, &compositor, &music);
+                  &activity, &compositor, &music, &keyboard);
 
   qmlRegisterType<OrbitLayer>("Nala", 1, 0, "OrbitLayer");
   qmlRegisterType<Trail>("Nala", 1, 0, "Trail");
@@ -207,6 +210,27 @@ int main(int argc, char **argv) {
   window->setIcon(QIcon(":/assets/nala.svg"));
   window->setProperty("ready", true);
 
+  engine.load(QUrl("qrc:/qml/Bubble.qml"));
+  if (engine.rootObjects().size() >= 2) {
+    if (auto *bubble = qobject_cast<QQuickWindow *>(engine.rootObjects().at(1))) {
+      backend.attachBubble(bubble);
+    }
+  }
+
+  engine.load(QUrl("qrc:/qml/SnackWindow.qml"));
+  if (engine.rootObjects().size() >= 3) {
+    if (auto *snack = qobject_cast<QQuickWindow *>(engine.rootObjects().at(2))) {
+      backend.attachSnackWindow(snack);
+    }
+  }
+
+  engine.load(QUrl("qrc:/qml/ToyWindow.qml"));
+  if (engine.rootObjects().size() >= 4) {
+    if (auto *toy = qobject_cast<QQuickWindow *>(engine.rootObjects().at(3))) {
+      backend.attachToyWindow(toy);
+    }
+  }
+
   QLocalServer server;
   if (!testing && !parser.isSet("preview")) {
     server.setSocketOptions(QLocalServer::UserAccessOption);
@@ -232,6 +256,8 @@ int main(int argc, char **argv) {
               QString::fromUtf8(buffer.left(buffer.indexOf('\n'))).trimmed();
           if (name == "status") {
             client->write(backend.status().toUtf8() + "\n");
+          } else if (name == "xp" || name == "level") {
+            client->write(backend.xpStatus().toUtf8());
           } else {
             backend.command(name);
             client->write("ok\n");
@@ -270,8 +296,14 @@ int main(int argc, char **argv) {
                      if (reason == QSystemTrayIcon::Trigger)
                        backend.openSettings();
                    });
-  if (!testing)
-    tray.show();
+  const auto updateTrayVisibility = [&] {
+    if (!testing && backend.showTrayIcon())
+      tray.show();
+    else
+      tray.hide();
+  };
+  updateTrayVisibility();
+  QObject::connect(&backend, &Backend::showTrayIconChanged, &app, updateTrayVisibility);
 
   if (requested == "settings")
     QTimer::singleShot(200, &backend, &Backend::openSettings);

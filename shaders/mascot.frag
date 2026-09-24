@@ -13,6 +13,7 @@ layout(std140, binding = 0) uniform buf {
     float qt_Opacity;
 
     vec4 bodyColor;
+    vec4 bodyColor2;
     vec4 eyeColor;
     vec4 badgeColor;
 
@@ -49,6 +50,10 @@ layout(std140, binding = 0) uniform buf {
     float dotsSpread; // "..." separation, 0..1
     float dotsShrink; // how far the core has collapsed into the "..." run
     float dotsPhase;  // travelling emphasis around the "..." run
+    float keyPulse;   // energy pulse on keyboard strike, 0..1
+    float furType;    // 0 = none, 1 = calico, 2 = tabby, 3 = leopard, 4 = cow, 5 = siamese, 6 = tiger
+    float furParam1;
+    float furParam2;
 };
 
 // Every constant below is a half-extent in the item's [-1,1] space, measured
@@ -191,6 +196,47 @@ float sdEgg(vec2 p) {
     return sdEllipse(vec2(p.x / taper, p.y), vec2(0.410, 0.50)) * taper;
 }
 
+// 5-point rounded cute star
+float sdStar5(vec2 p, float r, float rf) {
+    const vec2 k1 = vec2(0.809016994375, -0.587785252292);
+    const vec2 k2 = vec2(-k1.x, k1.y);
+    p.x = abs(p.x);
+    p -= 2.0 * max(dot(k1, p), 0.0) * k1;
+    p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+    p.x = abs(p.x);
+    p.y -= r;
+    vec2 ba = rf * vec2(-k1.y, k1.x) - vec2(0.0, 1.0);
+    float h = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+    return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
+}
+
+// Smooth cute plump mascot heart
+float sdHeart(vec2 p) {
+    p.x = abs(p.x);
+    p.y += 0.06;
+    float circles = length(p - vec2(0.18, 0.12)) - 0.25;
+    float bot = sdTriangle(vec2(p.x, -p.y - 0.15), 0.38) - 0.12;
+    return min(circles, bot);
+}
+
+// Fluffy puffy cloud
+float sdCloud(vec2 p) {
+    p.y += 0.04;
+    float cMid = sdCircle(p - vec2(0.0, 0.10), 0.28);
+    float cLeft = sdCircle(p - vec2(-0.24, -0.02), 0.22);
+    float cRight = sdCircle(p - vec2(0.24, -0.02), 0.22);
+    float cBottom = sdRoundBox(p - vec2(0.0, -0.12), vec2(0.26, 0.10), 0.10);
+    return min(min(cMid, min(cLeft, cRight)), cBottom);
+}
+
+// 5-petal flower blossom
+float sdBlossom(vec2 p) {
+    float angle = atan(p.y, p.x);
+    float r = length(p);
+    float wave = 0.32 + 0.13 * cos(5.0 * angle);
+    return r - wave;
+}
+
 float form(vec2 p, float which) {
     int f = int(which + 0.5);
     if (f == 1) return sdEgg(p);
@@ -202,17 +248,19 @@ float form(vec2 p, float which) {
     if (f == 5) return sdTeardrop(p);
     if (f == 6) return sdDots(p, dotsSpread, dotsShrink);
     if (f == 7) return sdCircle(p, 0.083);
+    if (f == 8) return sdStar5(p, 0.42, 0.50) - 0.06;
+    if (f == 9) return sdHeart(p);
+    if (f == 10) return sdCloud(p);
+    if (f == 11) return sdBlossom(p);
     return sdCircle(p, kRadius);
 }
 
 float isDots(float which) { return int(which + 0.5) == 6 ? 1.0 : 0.0; }
 
-// Which forms carry a face. In the reference the exclamation mark, the "..."
-// run, the teardrop and the sleeping dot are all featureless, so the eyes fade
-// out across the morph instead of riding along on a shape that has no face.
+// Which forms carry a face.
 float faceWeight(float which) {
     int f = int(which + 0.5);
-    return (f == 0 || f == 1 || f == 2 || f == 3) ? 1.0 : 0.0;
+    return (f == 0 || f == 1 || f == 2 || f == 3 || f == 8 || f == 9 || f == 10 || f == 11) ? 1.0 : 0.0;
 }
 
 // A single eye: a rounded vertical slit that can flatten to a blink dash or
@@ -221,6 +269,205 @@ float sdEye(vec2 p, vec2 centre, vec2 squash, float lean) {
     vec2 extent = vec2(eyeWidth, eyeHeight) * squash * kRadius;
     float r = min(extent.x, extent.y) * eyeRound;
     return sdRoundBox(rotate(p - centre * kRadius, lean), extent, r);
+}
+
+// --- Procedural fur patterns -----------------------------------------------
+
+float furHash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+float furNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = furHash(i);
+    float b = furHash(i + vec2(1.0, 0.0));
+    float c = furHash(i + vec2(0.0, 1.0));
+    float d = furHash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float furFbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
+    for (int i = 0; i < 4; ++i) {
+        v += a * furNoise(p);
+        p = rot * p * 2.02;
+        a *= 0.5;
+    }
+    return v;
+}
+
+vec3 computeCalico(vec2 p) {
+    // Calico cat: bold distinct ginger & espresso patches with fur feathering, creamy white belly/muzzle
+    float strandNoise = (furNoise(p * 20.0) - 0.5) * 0.07 + (furNoise(p * 40.0) - 0.5) * 0.035;
+
+    // Ginger patch on right ear/head and upper flank
+    vec2 pGinger = p - vec2(0.22, 0.16);
+    float dGinger = length(pGinger * vec2(1.1, 0.9)) + furNoise(p * 4.2) * 0.16 + strandNoise;
+    float gingerMask = smoothstep(0.38, 0.26, dGinger);
+
+    // Espresso patch on left ear/head and shoulder
+    vec2 pBlack = p - vec2(-0.25, 0.18);
+    float dBlack = length(pBlack * vec2(1.2, 0.85)) + furNoise((p + vec2(3.1, 1.7)) * 4.2) * 0.16 + strandNoise;
+    float blackMask = smoothstep(0.36, 0.24, dBlack) * (1.0 - gingerMask * 0.8);
+
+    // Warm secondary patch on right hip
+    vec2 pPatch3 = p - vec2(0.28, -0.22);
+    float dPatch3 = length(pPatch3 * vec2(1.3, 1.0)) + furNoise((p + vec2(7.2, 4.3)) * 4.5) * 0.14 + strandNoise;
+    float patch3 = smoothstep(0.24, 0.15, dPatch3) * (1.0 - gingerMask) * (1.0 - blackMask);
+
+    // Muzzle & chest stay clean warm white
+    float bellyWhite = smoothstep(-0.02, -0.32, p.y) * smoothstep(0.38, 0.0, abs(p.x));
+    gingerMask *= (1.0 - bellyWhite * 0.75);
+    blackMask *= (1.0 - bellyWhite * 0.75);
+
+    vec3 whiteFur = vec3(0.96, 0.95, 0.92);
+    vec3 gingerFur = mix(vec3(0.90, 0.48, 0.17), vec3(0.78, 0.38, 0.13), clamp(p.y * 0.8 + 0.5, 0.0, 1.0));
+    vec3 blackFur = mix(vec3(0.16, 0.13, 0.12), vec3(0.24, 0.18, 0.16), clamp(p.y * 0.6 + 0.4, 0.0, 1.0));
+
+    vec3 col = whiteFur;
+    col = mix(col, gingerFur, gingerMask);
+    col = mix(col, blackFur, blackMask);
+    col = mix(col, blackFur, patch3 * 0.85);
+    return col;
+}
+
+vec3 computeTabby(vec2 p) {
+    float belly = smoothstep(0.1, -0.45, p.y);
+    vec3 baseCoat = mix(vec3(0.68, 0.56, 0.46), vec3(0.88, 0.82, 0.74), belly);
+
+    float bend = sin(p.y * 7.0 + p.x * 2.0) * 0.12;
+    float stripeNoise = furFbm(vec2(p.x * 4.0, p.y * 6.0));
+    float wave = sin((p.x + bend) * 16.0 + stripeNoise * 3.0);
+    float stripeMask = smoothstep(0.25, 0.75, wave) * (1.0 - belly * 0.6);
+
+    vec3 stripeColor = vec3(0.22, 0.17, 0.14);
+    return mix(baseCoat, stripeColor, stripeMask * 0.85);
+}
+
+vec3 computeLeopard(vec2 p) {
+    vec2 uv = p * 7.5;
+    vec2 g = floor(uv);
+    vec2 f = fract(uv);
+    float d1 = 1.0;
+
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            vec2 neighbor = vec2(float(x), float(y));
+            vec2 pt = vec2(furHash(g + neighbor), furHash(g + neighbor + 31.41));
+            vec2 diff = neighbor + pt - f;
+            float dist = length(diff);
+            if (dist < d1) {
+                d1 = dist;
+            }
+        }
+    }
+
+    float noisePerturb = furNoise(uv * 2.0) * 0.15;
+    float d = d1 + noisePerturb;
+
+    float ring = smoothstep(0.18, 0.28, d) * smoothstep(0.44, 0.34, d);
+    float centerSpot = smoothstep(0.30, 0.08, d);
+
+    vec3 goldenFur = mix(vec3(0.94, 0.76, 0.44), vec3(0.82, 0.60, 0.32), clamp(0.5 - p.y, 0.0, 1.0));
+    vec3 centerColor = vec3(0.68, 0.38, 0.14);
+    vec3 ringColor = vec3(0.16, 0.12, 0.10);
+
+    vec3 col = mix(goldenFur, centerColor, centerSpot);
+    col = mix(col, ringColor, ring);
+    return col;
+}
+
+vec3 computeCow(vec2 p) {
+    // True Holstein cow: large, sweeping, fluid black patches with soft fur-edge definition
+    float hairEdge = (furNoise(p * 28.0) - 0.5) * 0.02;
+
+    // Spot 1: Large asymmetrical patch over upper-left ear/head
+    vec2 p1 = (p - vec2(-0.28, 0.32)) * vec2(1.1, 0.88);
+    float d1 = length(p1) + (furNoise(p * 4.8) - 0.5) * 0.08 + hairEdge;
+    float spot1 = smoothstep(0.28, 0.24, d1);
+
+    // Spot 2: Large fluid patch wrapping the lower-right flank
+    vec2 p2 = (p - vec2(0.26, -0.22)) * vec2(0.95, 1.15);
+    float d2 = length(p2) + (furNoise((p + vec2(3.7, 5.1)) * 4.5) - 0.5) * 0.09 + hairEdge;
+    float spot2 = smoothstep(0.32, 0.28, d2);
+
+    // Spot 3: Small cute satellite spot on upper-right crest
+    vec2 p3 = (p - vec2(0.28, 0.34)) * vec2(1.2, 0.95);
+    float d3 = length(p3) + (furNoise((p + vec2(7.1, 2.3)) * 6.0) - 0.5) * 0.06 + hairEdge;
+    float spot3 = smoothstep(0.16, 0.12, d3);
+
+    float totalSpots = clamp(spot1 + spot2 + spot3, 0.0, 1.0);
+
+    vec3 whiteCoat = vec3(0.97, 0.97, 0.98);
+    vec3 blackSpot = vec3(0.11, 0.11, 0.13);
+
+    return mix(whiteCoat, blackSpot, totalSpots);
+}
+
+vec3 computeSiamese(vec2 p) {
+    // Seal-point Siamese: warm pearl ivory body with classic face mask, ear tips, and paws
+    vec3 bodyCream = mix(vec3(0.96, 0.92, 0.86), vec3(0.89, 0.83, 0.75), clamp(0.5 - p.y * 0.6, 0.0, 1.0));
+
+    // Dark face mask covering eyes, bridge, and muzzle
+    vec2 facePos = (p - vec2(0.0, 0.05)) * vec2(0.85, 1.15);
+    float faceDist = length(facePos) + (furNoise(p * 14.0) - 0.5) * 0.05;
+    float faceMask = smoothstep(0.32, 0.06, faceDist);
+
+    // Ear points at upper corners
+    float earLeft = smoothstep(0.30, 0.06, length((p - vec2(-0.28, 0.36)) * vec2(1.0, 1.25)));
+    float earRight = smoothstep(0.30, 0.06, length((p - vec2(0.28, 0.36)) * vec2(1.0, 1.25)));
+    float earPoints = max(earLeft, earRight);
+
+    // Paw / tail points at very bottom
+    float paws = smoothstep(-0.25, -0.48, p.y);
+
+    float point = clamp(faceMask * 0.92 + earPoints * 0.88 + paws * 0.75, 0.0, 1.0);
+
+    vec3 sealBrown = vec3(0.18, 0.12, 0.10);
+    vec3 warmMocha = vec3(0.38, 0.25, 0.20);
+    vec3 pointCol = mix(warmMocha, sealBrown, clamp(point * 1.3 - 0.2, 0.0, 1.0));
+
+    return mix(bodyCream, pointCol, point);
+}
+
+vec3 computeDogFur(vec2 p, vec3 baseCol) {
+    // Fluffy canine fur: directional strand flow, guard hairs, clump depth, highlights
+    float flare = p.x * 0.7;
+    vec2 flowUV = vec2(p.x * 22.0 + flare, p.y * 7.5 - abs(p.x) * 3.5);
+
+    float hair1 = furNoise(flowUV);
+    float hair2 = furNoise(flowUV * 1.9 + vec2(5.3, 8.1));
+    float strands = hair1 * 0.6 + hair2 * 0.4;
+
+    float clump = furFbm(vec2(p.x * 5.0, p.y * 3.5));
+    float fluffLight = smoothstep(0.1, -0.4, p.y) * 0.12;
+
+    float hairShade = (strands - 0.5) * 0.45 + (clump - 0.5) * 0.22 + fluffLight;
+
+    vec3 shadowCol = baseCol * 0.72;
+    vec3 highlightCol = mix(baseCol, vec3(1.0), 0.28);
+
+    vec3 fur = mix(baseCol, shadowCol, clamp(-hairShade * 1.4, 0.0, 1.0));
+    fur = mix(fur, highlightCol, clamp(hairShade * 1.2, 0.0, 1.0));
+    return fur;
+}
+
+vec3 computeTiger(vec2 p) {
+    float belly = smoothstep(0.0, -0.46, p.y);
+    vec3 orangeFur = mix(vec3(0.94, 0.46, 0.08), vec3(0.96, 0.92, 0.86), belly);
+
+    float stripeNoise = furFbm(vec2(p.x * 3.5, p.y * 7.5));
+    float s = abs(sin(p.x * 12.0 + stripeNoise * 3.2));
+    float stripe = smoothstep(0.68, 0.82, s) * (1.0 - belly * 0.5);
+
+    vec3 blackStripe = vec3(0.12, 0.09, 0.08);
+    return mix(orangeFur, blackStripe, stripe);
 }
 
 void main() {
@@ -249,6 +496,11 @@ void main() {
     // the forms that have a face at all.
     float face = mix(faceWeight(formA), faceWeight(formB), formMix);
     float eyeMask = clamp(0.5 - eyes / px, 0.0, 1.0) * bodyMask * face;
+    float eyeRimMask = 0.0;
+    if (furType > 0.5) {
+        float eyeRimD = eyes - px * 2.0;
+        eyeRimMask = clamp(0.5 - eyeRimD / px, 0.0, 1.0) * bodyMask * face;
+    }
 
     // Measured on the reference: radius 0.142 R, centred 1.008 R out from her
     // middle at 41.8 degrees -- so it sits right on the rim.
@@ -257,7 +509,31 @@ void main() {
 
     // The badge sits on the rim and pokes outside the silhouette, so it
     // contributes coverage of its own rather than only recolouring the body.
-    float alpha = max(bodyMask * bodyColor.a, badgeMask);
+    float gradT = clamp(0.5 - p.y / (2.0 * kRadius), 0.0, 1.0);
+    vec3 baseBodyColor = mix(bodyColor.rgb, bodyColor2.rgb, gradT);
+    if (furType > 0.5) {
+        vec3 furCol = baseBodyColor;
+        if (furType < 1.5) {
+            furCol = computeCalico(p);
+        } else if (furType < 2.5) {
+            furCol = computeTabby(p);
+        } else if (furType < 3.5) {
+            furCol = computeLeopard(p);
+        } else if (furType < 4.5) {
+            furCol = computeCow(p);
+        } else if (furType < 5.5) {
+            furCol = computeSiamese(p);
+        } else if (furType < 6.5) {
+            furCol = computeTiger(p);
+        } else {
+            furCol = computeDogFur(p, baseBodyColor);
+        }
+        // Subtle micro-noise for soft fur texture
+        float microNoise = (furNoise(p * 45.0) - 0.5) * 0.035;
+        baseBodyColor = clamp(furCol + microNoise, 0.0, 1.0);
+    }
+    float bodyAlpha = mix(bodyColor.a, bodyColor2.a, gradT);
+    float alpha = max(bodyMask * bodyAlpha, badgeMask);
 
     // Fade the quiet dots rather than greying them: on a dark desktop a fixed
     // grey would read as a smudge, while lower opacity reads correctly on any
@@ -282,7 +558,13 @@ void main() {
         alpha *= mix(1.0, dotsEmphasis(p), apply);
     }
 
-    vec3 rgb = bodyColor.rgb;
+    vec3 rgb = baseBodyColor;
+    if (keyPulse > 0.001) {
+        rgb = mix(rgb, vec3(1.0), keyPulse * 0.45);
+    }
+    if (eyeRimMask > 0.001) {
+        rgb = mix(rgb, vec3(0.12, 0.10, 0.09), eyeRimMask);
+    }
     rgb = mix(rgb, eyeColor.rgb, eyeMask);
     rgb = mix(rgb, badgeColor.rgb, badgeMask);
 
