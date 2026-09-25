@@ -32,6 +32,7 @@ signals:
 private:
   void poll();
   void setAvailable(bool available);
+  QString resolveSocket();
 
   QString m_socket;
   QPoint m_position;

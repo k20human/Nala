@@ -698,6 +698,15 @@ void Backend::applyPlacement() {
         repositionBubble();
       if (m_snackWindow && m_snackWindow->isVisible())
         repositionSnackWindow();
+      if (m_cursor && m_cursor->available() && m_mascot && (m_followCursor || m_laserActive)) {
+        const qreal radius = bodyRadius();
+        if (radius > 0.0) {
+          const QPointF centre = centreOnScreen();
+          const QPoint pos = m_cursor->position();
+          m_mascot->lookAt((pos.x() - centre.x()) / radius,
+                           (pos.y() - centre.y()) / radius);
+        }
+      }
       return;
     }
   }
@@ -711,6 +720,15 @@ void Backend::applyPlacement() {
     repositionBubble();
   if (m_snackWindow && m_snackWindow->isVisible())
     repositionSnackWindow();
+  if (m_cursor && m_cursor->available() && m_mascot && (m_followCursor || m_laserActive)) {
+    const qreal radius = bodyRadius();
+    if (radius > 0.0) {
+      const QPointF centre = centreOnScreen();
+      const QPoint pos = m_cursor->position();
+      m_mascot->lookAt((pos.x() - centre.x()) / radius,
+                       (pos.y() - centre.y()) / radius);
+    }
+  }
 }
 
 void Backend::applyInputRegion(bool wholeWindow) {
