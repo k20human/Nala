@@ -24,6 +24,7 @@ private slots:
 
 private:
   void closeDevices();
+  void dropWatcher(int fd);
 
   bool m_active = true;
   bool m_available = false;

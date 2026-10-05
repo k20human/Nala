@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
 #include <linux/input.h>
@@ -31,6 +32,20 @@ void Keyboard::closeDevices() {
       ::close(w.fd);
   }
   m_watchers.clear();
+}
+
+void Keyboard::dropWatcher(int fd) {
+  for (int i = 0; i < m_watchers.size(); ++i) {
+    if (m_watchers[i].fd != fd)
+      continue;
+    // Reached from the notifier's own signal: stop it now, delete it once the
+    // handler has returned.
+    m_watchers[i].notifier->setEnabled(false);
+    m_watchers[i].notifier->deleteLater();
+    ::close(fd);
+    m_watchers.removeAt(i);
+    return;
+  }
 }
 
 void Keyboard::setActive(bool active) {
@@ -104,8 +119,17 @@ void Keyboard::scanDevices() {
         struct input_event evs[64];
         while (true) {
           ssize_t bytes = ::read(fd, evs, sizeof(evs));
-          if (bytes <= 0)
+          if (bytes < 0 && errno == EINTR)
+            continue;
+          if (bytes < 0 && errno == EAGAIN)
             break;
+          if (bytes <= 0) {
+            // ENODEV: the device was unplugged or its node re-created. A dead
+            // evdev fd stays "readable" forever and would spin the event loop,
+            // so drop it; the next scan reopens whatever is there now.
+            dropWatcher(fd);
+            return;
+          }
           const size_t count = bytes / sizeof(struct input_event);
           for (size_t i = 0; i < count; ++i) {
             // value == 1: key pressed (down)
