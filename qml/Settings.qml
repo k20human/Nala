@@ -44,6 +44,7 @@ Window {
             "display_primary": "Écran principal",
             "follow_cursor": "Suivre le curseur",
             "react_desktop": "Réagir au bureau",
+            "react_notifications": "Réagir aux notifications",
             "idle_antics": "Comportements spontanés",
             "sleep_idle": "Dormir si inactif",
             "stay_top": "Toujours au premier plan",
@@ -109,6 +110,7 @@ Window {
             "display_primary": "Primary display",
             "follow_cursor": "Follow the cursor",
             "react_desktop": "React to your desktop",
+            "react_notifications": "React to notifications",
             "idle_antics": "Idle antics",
             "sleep_idle": "Sleep when idle",
             "stay_top": "Stay above windows",
@@ -1075,6 +1077,14 @@ Window {
                         text: t("react_desktop")
                         checked: backend.reactToDesktop
                         onToggled: backend.configure("reactToDesktop", checked)
+                    }
+
+                    NalaSwitch {
+                        objectName: "notificationsToggle"
+                        text: t("react_notifications")
+                        enabled: backend.reactToDesktop
+                        checked: backend.reactToNotifications
+                        onToggled: backend.configure("reactToNotifications", checked)
                     }
 
                     NalaSwitch {

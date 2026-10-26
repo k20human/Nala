@@ -168,7 +168,7 @@ Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
   if (m_activity && m_mascot) {
     // A notification is what the badge has always been for.
     connect(m_activity, &Activity::notified, this, [this] {
-      if (m_reactToDesktop) {
+      if (m_reactToDesktop && m_reactToNotifications) {
         m_mascot->notify();
         const bool inCorner = (m_place.x() > 0.75 && m_place.y() < 0.25);
         if (inCorner) {
@@ -302,6 +302,8 @@ void Backend::load() {
   m_sleepWhenIdle = json.value("sleepWhenIdle").toBool(m_sleepWhenIdle);
   m_reducedMotion = json.value("reducedMotion").toBool(m_reducedMotion);
   m_reactToDesktop = json.value("reactToDesktop").toBool(m_reactToDesktop);
+  m_reactToNotifications =
+      json.value("reactToNotifications").toBool(m_reactToNotifications);
   m_stayOnTop = json.value("stayOnTop").toBool(m_stayOnTop);
   m_showTrayIcon = json.value("showTrayIcon").toBool(m_showTrayIcon);
   m_language = json.value("language").toString(m_language);
@@ -349,6 +351,7 @@ void Backend::save() {
       {"sleepWhenIdle", m_sleepWhenIdle},
       {"reducedMotion", m_reducedMotion},
       {"reactToDesktop", m_reactToDesktop},
+      {"reactToNotifications", m_reactToNotifications},
       {"stayOnTop", m_stayOnTop},
       {"monitor", m_monitor},
       {"x", m_place.x()},
@@ -438,6 +441,8 @@ void Backend::configure(const QString &key, const QVariant &value) {
     m_reducedMotion = value.toBool();
   } else if (key == "reactToDesktop") {
     m_reactToDesktop = value.toBool();
+  } else if (key == "reactToNotifications") {
+    m_reactToNotifications = value.toBool();
   } else if (key == "stayOnTop") {
     m_stayOnTop = value.toBool();
   } else if (key == "showTrayIcon") {

@@ -1002,6 +1002,15 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
       mascot.tick(1.0 / 60.0);
     check(mascot.badge() < 0.1, "unless she has been told not to");
     backend.configure("reactToDesktop", true);
+
+    // Notifications have their own switch, the rest of the desktop aside.
+    backend.configure("reactToNotifications", false);
+    mascot.rest();
+    activity.injectNotification();
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(mascot.badge() < 0.1, "nor when notifications alone are off");
+    backend.configure("reactToNotifications", true);
     mascot.setIdleAntics(false);
     mascot.setSleepWhenIdle(true);
   }

@@ -33,6 +33,7 @@ class Backend : public QObject {
   Q_PROPERTY(bool followCursor READ followCursor NOTIFY changed)
   Q_PROPERTY(bool idleAntics READ idleAntics NOTIFY changed)
   Q_PROPERTY(bool reactToDesktop READ reactToDesktop NOTIFY changed)
+  Q_PROPERTY(bool reactToNotifications READ reactToNotifications NOTIFY changed)
   Q_PROPERTY(bool sleepWhenIdle READ sleepWhenIdle NOTIFY changed)
   Q_PROPERTY(bool reducedMotion READ reducedMotion NOTIFY changed)
   Q_PROPERTY(bool stayOnTop READ stayOnTop NOTIFY changed)
@@ -83,6 +84,7 @@ public:
   bool followCursor() const { return m_followCursor; }
   bool idleAntics() const { return m_idleAntics; }
   bool reactToDesktop() const { return m_reactToDesktop; }
+  bool reactToNotifications() const { return m_reactToNotifications; }
   bool sleepWhenIdle() const { return m_sleepWhenIdle; }
   bool reducedMotion() const { return m_reducedMotion; }
   bool stayOnTop() const { return m_stayOnTop; }
@@ -262,6 +264,7 @@ private:
   bool m_followCursor = true;
   bool m_idleAntics = true;
   bool m_reactToDesktop = true;
+  bool m_reactToNotifications = true;
   bool m_sleepWhenIdle = true;
   bool m_reducedMotion = false;
   bool m_stayOnTop = true;
